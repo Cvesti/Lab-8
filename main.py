@@ -1,69 +1,92 @@
-import time
-
 import cv2
+import numpy as np
 
+# Функция для сохранения координат в файл
+def save_coordinates_to_file(x, y):
+    with open('marker_coordinates.txt', 'a') as f:
+        f.write(f"Marker coordinates: x={x}, y={y}\n")
 
-def image_processing():
-    img = cv2.imread('img_test.jpg')
-    #cv2.imshow('image', img)
-    w, h = img.shape[:2]
-    #(cX, cY) = (w // 2, h // 2)
-    #M = cv2.getRotationMatrix2D((cX, cY), 45, 1.0)
-    #rotated = cv2.warpAffine(img, M, (w, h))
-    #cv2.imshow('rotated', rotated)
+# Загрузка изображения метки
+marker = cv2.imread('images/variant-2.png', cv2.IMREAD_GRAYSCALE)
+if marker is None:
+    print("Error: Could not load marker image")
+    exit()
 
-    #cat = img[250:580, 20:280]
-    #cv2.imshow('image', cat)
+# Инициализация детектора ORB
+orb = cv2.ORB_create()
+kp_marker, desc_marker = orb.detectAndCompute(marker, None)
 
-    #r = cv2.selectROI(img)
-    #image_cropped = img[int(r[1]):int(r[1] + r[3]), int(r[0]):int(r[0] + r[2])]
-    #cv2.imshow('cropped', image_cropped)
+# Инициализация видеозахвата
+cap = cv2.VideoCapture(0)
 
-    cv2.line(img, (0, 0), (580, 600), (255, 0, 0), 5)
-    cv2.rectangle(img, (384, 10), (580, 128), (0, 252, 0), 3)
-    cv2.putText(img, 'Lab. No 8', (10, 500), cv2.FONT_HERSHEY_SIMPLEX, 3,
-                (0, 0, 255), 2, cv2.LINE_AA)
-    cv2.imshow('img', img)
+# Создание BFMatcher объекта
+bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
+# Создаем окна с возможностью изменения размера
+cv2.namedWindow('Matches', cv2.WINDOW_NORMAL)
+cv2.namedWindow('Blurred Frame', cv2.WINDOW_NORMAL)
 
-def video_processing():
-    cap = cv2.VideoCapture(1)
-    down_points = (640, 480)
-    i = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+# Устанавливаем начальный размер окон
+cv2.resizeWindow('Matches', 800, 600)
+cv2.resizeWindow('Blurred Frame', 800, 600)
 
-        frame = cv2.resize(frame, down_points, interpolation=cv2.INTER_LINEAR)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (21, 21), 0)
-        ret, thresh = cv2.threshold(gray, 110, 255, cv2.THRESH_BINARY_INV)
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+    
+    # Конвертация в градации серого
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Применение размытия по Гауссу
+    blurred_frame = cv2.GaussianBlur(gray_frame, (15, 15), 0)
+    
+    # Поиск ключевых точек на кадре
+    kp_frame, desc_frame = orb.detectAndCompute(blurred_frame, None)
+    
+    if desc_frame is not None and len(kp_frame) > 0:
+        # Сопоставление дескрипторов
+        matches = bf.match(desc_marker, desc_frame)
+        matches = sorted(matches, key=lambda x: x.distance)
+        
+        # Отображение лучших совпадений
+        good_matches = matches[:10]
+        img_matches = cv2.drawMatches(marker, kp_marker, blurred_frame, kp_frame, 
+                                     good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        
+        # Получение координат центра метки
+        if len(good_matches) > 0:
+            # Используем среднее положение всех хороших совпадений
+            sum_x = 0
+            sum_y = 0
+            count = 0
+            
+            for match in good_matches:
+                frame_idx = match.trainIdx
+                x, y = kp_frame[frame_idx].pt
+                sum_x += x
+                sum_y += y
+                count += 1
+            
+            if count > 0:
+                center_x = int(sum_x / count)
+                center_y = int(sum_y / count)
+                
+                # Сохранение координат в файл
+                save_coordinates_to_file(center_x, center_y)
+                
+                # Отрисовка центра метки
+                cv2.circle(blurred_frame, (center_x, center_y), 10, (0, 255, 0), 2)
+                cv2.putText(blurred_frame, f"({center_x}, {center_y})", 
+                            (center_x + 15, center_y), cv2.FONT_HERSHEY_SIMPLEX, 
+                            0.5, (0, 255, 0), 2)
+        
+        cv2.imshow('Matches', img_matches)
+    
+    cv2.imshow('Blurred Frame', blurred_frame)
+    
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-        contours, hierarchy = cv2.findContours(thresh,
-                            cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        if len(contours) > 0:
-            c = max(contours, key=cv2.contourArea)
-            x, y, w, h = cv2.boundingRect(c)
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-            if i % 5 == 0:
-                a = x + (w // 2)
-                b = y + (h // 2)
-                print(a, b)
-
-        cv2.imshow('frame', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-        time.sleep(0.1)
-        i += 1
-
-    cap.release()
-
-
-if __name__ == '__main__':
-    #image_processing()
-    video_processing()
-
-cv2.waitKey(0)
+cap.release()
 cv2.destroyAllWindows()
