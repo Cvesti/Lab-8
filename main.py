@@ -39,7 +39,7 @@ while True:
     gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Применение размытия по Гауссу
-    blurred_frame = cv2.GaussianBlur(gray_frame, (15, 15), 0)
+    blurred_frame = cv2.GaussianBlur(gray_frame, (7, 7), 0)
     
     # Поиск ключевых точек на кадре
     kp_frame, desc_frame = orb.detectAndCompute(blurred_frame, None)
